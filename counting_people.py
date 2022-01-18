@@ -4,6 +4,7 @@ import sys
 import numpy as np
 import os.path
 import math
+from shapely.geometry import Point, Polygon
 from centroidtracker import CentroidTracker
 from trackableobject import TrackableObject
 
@@ -106,10 +107,22 @@ def postprocess(frame, outs):
             # use the centroid tracker to associate the (1) old object
             # centroids with (2) the newly computed object centroids
             objects = ct.update(rects)
-            counting(objects)
+            #drawPred(confidences[i], left, top, left + width, top + height)
+            counting(objects, confidences[i])
+    
+def drawPred(Id, conf, left, top, right, bottom):
+    # Draw a bounding box.
+    #cv.rectangle(frame, (left, top), (right, bottom), (255, 178, 50), 3)
+    
+    label = '%.2f' % conf
+    label = 'ID%s:%s' % (Id, label)
+    #Display the label at the top of the bounding box
+    labelSize, baseLine = cv.getTextSize(label, cv.FONT_HERSHEY_SIMPLEX, 0.5, 1)
+    top = max(top, labelSize[1])
+    cv.rectangle(frame, (left, top - round(1.5*labelSize[1])), (left + round(1.5*labelSize[0]), top + baseLine), (255, 255, 255), cv.FILLED)
+    cv.putText(frame, label, (left, top), cv.FONT_HERSHEY_SIMPLEX, 0.75, (0,0,0), 1)
 
-
-def counting(objects):
+def counting(objects, confidence):
     frameHeight = frame.shape[0]
     frameWidth = frame.shape[1]
 
@@ -135,34 +148,44 @@ def counting(objects):
             # 'up' and positive for 'down')
             y = [c[1] for c in to.centroids]
             direction = centroid[1] - np.mean(y)
-            print(direction)
+            print("ID: ", objectID)
+            print("Direction=", direction)
+            print("Confidence= ", confidence)
             to.centroids.append(centroid)
- 
+            coords = [(190, 460), (380, 320), (850, 400), (700, 565)]
+            coord_t = [(380, 320), (350, 400), (810, 490), (850, 400)]
+            coord_b = [(190, 460), (270, 435), (770, 540), (700, 565)]
+            poly_t = Polygon(coord_t)
+            poly_b = Polygon(coord_b)
+            poly = Polygon(coords)
+            point = Point(centroid)
             # check to see if the object has been counted or not
             if not to.counted:
                 # if the direction is negative (indicating the object
                 # is moving up) AND the centroid is above the center
                 # line, count the object
 
-                if direction < 0 and centroid[1] in range(frameHeight//2 - 30, frameHeight//2 + 30):
+                if direction < 0 and poly_t.contains(point) and poly.contains(point):
                     totalUp += 1
                     to.counted = True
  
                 # if the direction is positive (indicating the object
                 # is moving down) AND the centroid is below the
                 # center line, count the object
-                elif direction > 0 and centroid[1] in range(frameHeight//2 - 30, frameHeight//2 + 30):
+                elif direction > 0 and poly_b.contains(point) and poly.contains(point):
                     totalDown += 1
                     to.counted = True
- 
         # store the trackable object in our dictionary
         trackableObjects[objectID] = to
         # draw both the ID of the object and the centroid of the
         # object on the output frame
-        #text = "ID {}".format(objectID)
+        drawPred(objectID, confidence, centroid[0] - 50, centroid[1] + 30, centroid[0] +30, centroid[1] -30 )
+        #text = "ID{}".format(objectID)
         #cv.putText(frame, text, (centroid[0] - 10, centroid[1] - 10),
-            #cv.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-        cv.circle(frame, (centroid[0], centroid[1]), 4, (0, 255, 0), -1)
+        #    cv.FONT_HERSHEY_COMPLEX_SMALL, 0.7, (0, 255, 0), 2)
+        #cv.putText(frame, label, (centroid[0] - 10, centroid[1] + 20),
+        #    cv.FONT_HERSHEY_COMPLEX_SMALL, 0.7, (0, 255, 0), 2)
+        cv.circle(frame, (centroid[0], centroid[1]), 4, (255, 178, 50), -1)
     # construct a tuple of information we will be displaying on the
     # frame
     info = [
@@ -174,7 +197,7 @@ def counting(objects):
     for (i, (k, v)) in enumerate(info):
         text = "{}: {}".format(k, v)
         cv.putText(frame, text, (10, frameHeight - ((i * 20) + 20)),
-            cv.FONT_HERSHEY_COMPLEX_SMALL, 0.6, (255, 0, 255), 2)
+            cv.FONT_HERSHEY_COMPLEX_SMALL, 1, (255, 0, 255), 2)
 
 # Process inputs
 winName = 'People Counting and Tracking System'
@@ -188,7 +211,7 @@ if (args.video):
         print("Input video file ", args.video, " doesn't exist")
         sys.exit(1)
     cap = cv.VideoCapture(args.video)
-    outputFile = args.video[:-4]+'_output.avi'
+    outputFile = args.video[:-4]+'_hung.avi'
 else:
     # Webcam input
     cap = cv.VideoCapture(0)
@@ -202,8 +225,18 @@ while cv.waitKey(1) < 0:
     hasFrame, frame = cap.read()
     frameHeight = frame.shape[0]
     frameWidth = frame.shape[1]
+    region = [[200, 450], [360, 340], [830, 420], [710, 555]]
+    region = np.array(region, dtype=np.int32).reshape((-1, 1, 2))
+    regiontop = [[380, 320], [350, 400], [810, 490], [850, 400]]
+    regiontop = np.array(regiontop, dtype=np.int32).reshape((-1, 1, 2))
+    regionbottom = [[190, 460], [270, 435], [770, 540], [700, 565]]
+    regionbottom = np.array(regionbottom, dtype=np.int32).reshape((-1, 1, 2))
+    cv.polylines(frame, [regiontop], True, (0, 255, 0), 2)
+    cv.polylines(frame, [regionbottom], True, (0, 255, 0), 2)
+    cv.polylines(frame, [region], True, (0, 0, 255), 2)
+    #cv.line(frame, (190, 460), (700, 565), (0, 255, 0), 3)
     #cv.line(frame, (0, frameHeight // 2), (frameWidth, frameHeight // 2), (0, 255, 255), 2)
-    cv.rectangle(frame, (0, frameHeight // 2 - 30), (frameWidth, frameHeight // 2 + 30), (0, 255, 0), 2)
+    #cv.rectangle(frame, (0, frameHeight // 2 - 30), (frameWidth, frameHeight // 2 + 30), (0, 255, 0), 2)
     # Stop the program if reached end of video
     if not hasFrame:
         print("Done processing !!!")
@@ -228,7 +261,7 @@ while cv.waitKey(1) < 0:
     # Put efficiency information. The function getPerfProfile returns the overall time for inference(t) and the timings for each of the layers(in layersTimes)
     t, _ = net.getPerfProfile()
     label = 'Inference time: %.2f ms' % (t * 1000.0 / cv.getTickFrequency())
-    cv.putText(frame, label, (0, 15), cv.FONT_HERSHEY_COMPLEX_SMALL, 0.5, (255, 0, 255))
+    cv.putText(frame, label, (0, 15), cv.FONT_HERSHEY_COMPLEX_SMALL, 1, (255, 0, 255))
 
     # Write the frame with the detection boxes
 
